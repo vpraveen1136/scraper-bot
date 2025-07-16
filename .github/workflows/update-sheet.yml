@@ -1,0 +1,27 @@
+name: Update Delivery % from NSE Bhavcopy
+
+on:
+  schedule:
+    - cron: '30 5 * * 1-5' # Runs at 11:00 AM IST (Mon–Fri)
+  workflow_dispatch:       # Allows manual run from GitHub UI
+
+jobs:
+  update-sheet:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v3
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: 📦 Install dependencies
+        run: npm install
+
+      - name: 🛠️ Run update script
+        run: node index.js
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
