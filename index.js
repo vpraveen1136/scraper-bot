@@ -54,7 +54,7 @@ async function updateSheetFromCSV(csvData) {
   await doc.useServiceAccountAuth(creds);
   await doc.loadInfo();
 
-  const sheet = doc.sheetsByTitle["DelPerc"];
+  const sheet = doc.sheetsByTitle["Sheet1"];
   if (!sheet) {
     console.error("❌ Sheet 'DelPerc' not found");
     return;
@@ -78,7 +78,7 @@ async function updateSheetFromCSV(csvData) {
     const delivery = deliveryMap[symbol];
 
     if (symbol && delivery) {
-      row._rawData[1] = delivery; // Column B = index 1
+      row._rawData[18] = delivery; // Column S = index 18
       await row.save();
       console.log(`✅ Updated ${symbol} → ${delivery}`);
     } else {
