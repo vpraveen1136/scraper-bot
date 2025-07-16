@@ -1,7 +1,5 @@
-
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const csv = require("csv-parser");
-//require('dotenv').config();
 const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 const SHEET_ID = "1EVY2xoDUVJ5BtTiStQKGqWURCD5AH4sSZcw5uHaYrUI";
 const axios = require("axios");
@@ -56,13 +54,11 @@ async function updateSheetFromCSV(csvData) {
 
   const sheet = doc.sheetsByTitle["Sheet1"];
   if (!sheet) {
-    console.error("❌ Sheet 'DelPerc' not found");
+    console.error("❌ Sheet 'Sheet1' not found");
     return;
   }
 
-  const rows = await sheet.getRows();
   const deliveryMap = {};
-
   for (const row of csvData) {
     const symbol = row["SYMBOL"]?.trim().toUpperCase();
     const delivery = row["DELIV_PER"]?.trim();
@@ -71,20 +67,28 @@ async function updateSheetFromCSV(csvData) {
     }
   }
 
-  console.log(`📄 Updating 'DelPerc' → Rows: ${rows.length}`);
-  for (const row of rows) {
-    const rawSymbol = row._rawData[0];
-    const symbol = rawSymbol?.trim().toUpperCase();
+  const rowCount = sheet.rowCount;
+  console.log(`📄 Loading cells for batch update (A1:S${rowCount})...`);
+  await sheet.loadCells(`A1:S${rowCount}`);
+
+  let updatedCount = 0;
+
+  for (let r = 1; r < rowCount; r++) {
+    const symbolCell = sheet.getCell(r, 0); // Column A (symbol)
+    const deliveryCell = sheet.getCell(r, 18); // Column S (delivery %)
+
+    const symbol = symbolCell.value?.toString().trim().toUpperCase();
     const delivery = deliveryMap[symbol];
 
-    if (symbol && delivery) {
-      row._rawData[18] = delivery; // Column S = index 18
-      await row.save();
+    if (symbol && delivery && deliveryCell.value !== delivery) {
+      deliveryCell.value = delivery;
+      updatedCount++;
       console.log(`✅ Updated ${symbol} → ${delivery}`);
-    } else {
-      console.log(`⚠️  Symbol '${symbol}' not found in Bhavcopy`);
     }
   }
+
+  await sheet.saveUpdatedCells();
+  console.log(`✅ Batch update complete. ${updatedCount} rows updated.`);
 }
 
 async function main() {
@@ -92,7 +96,6 @@ async function main() {
     console.log("🟡 Starting script...");
     const dateStr = getTodayDateString();
     const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dateStr}.csv`;
-    //const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_15072025.csv";
     console.log("📥 Downloading CSV:", url);
 
     const csvData = await downloadCSV(url);
