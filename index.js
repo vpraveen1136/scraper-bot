@@ -4,6 +4,7 @@ const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 const SHEET_ID = "1EVY2xoDUVJ5BtTiStQKGqWURCD5AH4sSZcw5uHaYrUI";
 const axios = require("axios");
 
+// Create today's date string in ddmmyyyy format for URL
 function getTodayDateString() {
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, "0");
@@ -12,10 +13,10 @@ function getTodayDateString() {
   return `${dd}${mm}${yyyy}`;
 }
 
+// Download CSV and parse
 function downloadCSV(url) {
   return new Promise(async (resolve, reject) => {
     const results = [];
-
     try {
       const response = await axios.get(url, {
         headers: {
@@ -30,13 +31,13 @@ function downloadCSV(url) {
 
       response.data
         .pipe(csv())
-        .on("data", (rawData) => {
-          const cleanData = {};
-          for (const key in rawData) {
+        .on("data", (row) => {
+          const cleanRow = {};
+          for (let key in row) {
             const cleanKey = key.replace(/\uFEFF/g, "").trim();
-            cleanData[cleanKey] = rawData[key]?.trim();
+            cleanRow[cleanKey] = row[key]?.trim();
           }
-          results.push(cleanData);
+          results.push(cleanRow);
         })
         .on("end", () => resolve(results))
         .on("error", (err) => reject(err));
@@ -46,6 +47,31 @@ function downloadCSV(url) {
   });
 }
 
+// Sleep function for delay between column shifts
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Shift one column at a time with delay
+async function shiftColumnsWithDelay(sheet, startRow, endRow, sourceStart, sourceEnd, offset = -1) {
+  for (let c = sourceStart; c <= sourceEnd; c++) {
+    const fromColLetter = String.fromCharCode(65 + c);
+    const toColLetter = String.fromCharCode(65 + c + offset);
+    console.log(`📥 Copying ${fromColLetter}${startRow + 1}:${fromColLetter}${endRow + 1} → ${toColLetter}${startRow + 1}:${toColLetter}${endRow + 1}`);
+
+    for (let r = startRow; r <= endRow; r++) {
+      const from = sheet.getCell(r, c);
+      const to = sheet.getCell(r, c + offset);
+      to.value = from.value;
+    }
+
+    await sheet.saveUpdatedCells();
+    console.log(`✅ Saved column ${fromColLetter} → ${toColLetter}`);
+    await sleep(1000); // wait 1 second
+  }
+}
+
+// Main update function
 async function updateSheetFromCSV(csvData, csvDateStr) {
   const doc = new GoogleSpreadsheet(SHEET_ID);
   console.log("🟡 Authenticating Google Sheets...");
@@ -59,7 +85,6 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
   }
 
   const rowCount = sheet.rowCount;
-  console.log(`📄 Loading cells A1:AF${rowCount}...`);
   await sheet.loadCells(`A1:AF${rowCount}`);
 
   // Parse Q2 date
@@ -68,7 +93,7 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
   const [exDay, exMonth, exYear] = existingDateStr.split("/").map(Number);
   const existingDate = new Date(exYear, exMonth - 1, exDay);
 
-  // Parse new CSV date (dd-MMM-yyyy)
+  // Parse CSV date from DATE1
   const [newDay, newMonStr, newYear] = csvDateStr.split("-");
   const monthMap = {
     Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
@@ -80,78 +105,66 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
   console.log("📅 New CSV Date:", csvDateStr, "→", newDate.toDateString());
 
   if (!isNaN(existingDate) && newDate <= existingDate) {
-    console.log("⚠️ Sheet already contains newer or same date:", existingDateStr);
+    console.log("⚠️ Sheet already contains newer or same date. No update needed.");
     return;
   }
 
-  // Shift C–P → B–O and S–AE → R–AD
-  for (let r = 1; r < rowCount; r++) {
-    for (let c = 2; c <= 15; c++) {
-      const from = sheet.getCell(r, c);
-      const to = sheet.getCell(r, c - 1);
-      to.value = from.value;
-    }
-    for (let c = 18; c <= 31; c++) {
-      const from = sheet.getCell(r, c);
-      const to = sheet.getCell(r, c - 1);
-      to.value = from.value;
-    }
-  }
+  // ✅ Shift columns with delay
+  await shiftColumnsWithDelay(sheet, 1, rowCount - 1, 2, 15, -1);  // C:P → B:O
+  await shiftColumnsWithDelay(sheet, 1, rowCount - 1, 18, 31, -1); // S:AE → R:AD
 
-  // Prepare maps
+  // Prepare data maps
   const deliveryMap = {};
-  const priceChgMap = {};
+  const priceMap = {};
   for (const row of csvData) {
     const symbol = row["SYMBOL"]?.trim().toUpperCase();
-    const delivery = row["DELIV_PER"]?.trim();
+    const delivery = row["DELIV_PER"];
     const today = parseFloat(row["CLOSE_PRICE"]);
     const prev = parseFloat(row["PREV_CLOSE"]);
-
-    if (symbol && delivery) {
-      deliveryMap[symbol] = delivery;
-    }
-
+    if (symbol && delivery) deliveryMap[symbol] = delivery;
     if (symbol && !isNaN(today) && !isNaN(prev) && prev !== 0) {
-      priceChgMap[symbol] = ((today - prev) / prev) * 100;
+      priceMap[symbol] = ((today - prev) / prev) * 100;
     }
   }
 
-  // Update column P (15) - Delivery %
+  // Update delivery % (P column)
   let deliveryCount = 0;
   for (let r = 1; r < rowCount; r++) {
-    const symbol = sheet.getCell(r, 0)?.value?.toString().trim().toUpperCase();
+    const symbol = sheet.getCell(r, 0).value?.toString().trim().toUpperCase();
+    if (!symbol) continue;
+    const newDeliv = deliveryMap[symbol];
     const cell = sheet.getCell(r, 15);
-    const newVal = deliveryMap[symbol];
-    if (symbol && newVal && cell.value !== newVal) {
-      cell.value = newVal;
+    if (newDeliv && cell.value !== newDeliv) {
+      cell.value = newDeliv;
       deliveryCount++;
     }
   }
 
-  // Write Q2 new date
-  q2Cell.value = `${newDay.padStart(2, "0")}/${(monthMap[newMonStr] + 1).toString().padStart(2, "0")}/${newYear}`;
-
-  console.log("💾 Saving delivery % and column shifts...");
+  // Save delivery updates
   await sheet.saveUpdatedCells();
-  console.log(`✅ Saved ${deliveryCount} delivery updates and date to Q2.`);
+  console.log(`✅ Updated ${deliveryCount} delivery rows.`);
 
-  // Now update column AE (31) - Price %
+  // Update price % (AE column)
   let priceCount = 0;
   for (let r = 1; r < rowCount; r++) {
-    const symbol = sheet.getCell(r, 0)?.value?.toString().trim().toUpperCase();
+    const symbol = sheet.getCell(r, 0).value?.toString().trim().toUpperCase();
+    const price = priceMap[symbol];
     const cell = sheet.getCell(r, 31);
-    const priceChange = priceChgMap[symbol];
-    if (symbol && priceChange != null && cell.value !== priceChange) {
-      cell.value = parseFloat(priceChange.toFixed(2));
+    if (symbol && price != null && cell.value !== price) {
+      cell.value = parseFloat(price.toFixed(2));
       priceCount++;
     }
   }
 
-  console.log("💾 Saving price % updates...");
+  // Save price updates
   await sheet.saveUpdatedCells();
-  console.log(`✅ Sheet updated: ${deliveryCount} delivery rows, ${priceCount} price rows.`);
-}
+  console.log(`✅ Updated ${priceCount} price change rows.`);
 
+  // Update Q2
+  q2Cell.value = `${newDay.padStart(2, "0")}/${(monthMap[newMonStr] + 1).toString().padStart(2, "0")}/${newYear}`;
+  await sheet.saveUpdatedCells();
+  console.log(`📅 Q2 updated to new date: ${q2Cell.value}`);
+}
 
 async function main() {
   try {
