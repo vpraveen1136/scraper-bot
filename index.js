@@ -13,6 +13,13 @@ function getTodayDateString() {
   return `${dd}${mm}${yyyy}`;
 }
 
+function parseDDMMYYYYtoDate(ddmmyyyy) {
+  const dd = parseInt(ddmmyyyy.slice(0, 2));
+  const mm = parseInt(ddmmyyyy.slice(2, 4)) - 1; // 0-based months
+  const yyyy = parseInt(ddmmyyyy.slice(4, 8));
+  return new Date(yyyy, mm, dd);
+}
+
 function downloadCSV(url) {
   return new Promise(async (resolve, reject) => {
     const results = [];
@@ -47,7 +54,7 @@ function downloadCSV(url) {
   });
 }
 
-async function updateSheetFromCSV(csvData, urlDate) {
+async function updateSheetFromCSV(csvData, urlDateStr) {
   const doc = new GoogleSpreadsheet(SHEET_ID);
   console.log("🟡 Authenticating Google Sheets...");
   await doc.useServiceAccountAuth(creds);
@@ -59,8 +66,8 @@ async function updateSheetFromCSV(csvData, urlDate) {
     return;
   }
 
-  // Load Column A to find how many rows are filled
-  await sheet.loadCells("A1:A10000"); // Load up to 10,000 rows from Column A
+  // Load Column A to detect how many rows are filled
+  await sheet.loadCells("A1:A10000");
   let lastRow = 1;
   for (let r = 1; r < 10000; r++) {
     const cell = sheet.getCell(r, 0);
@@ -73,10 +80,19 @@ async function updateSheetFromCSV(csvData, urlDate) {
   await sheet.loadCells(`A1:Q${usedRowCount}`);
 
   const q2Cell = sheet.getCell(1, 16); // Q2
-  const existingDate = q2Cell.value ? String(q2Cell.value).trim() : "";
+  const urlDateObj = parseDDMMYYYYtoDate(urlDateStr);
 
-  if (existingDate && urlDate <= existingDate) {
-    console.log("⚠️ Sheet already contains newer or same date:", existingDate);
+  let existingDateObj = null;
+  if (q2Cell.value instanceof Date) {
+    existingDateObj = q2Cell.value;
+  }
+
+  // Compare dates
+  if (existingDateObj && urlDateObj <= existingDateObj) {
+    console.log(
+      "⚠️ Sheet already contains newer or same date:",
+      existingDateObj.toLocaleDateString("en-GB")
+    );
     return;
   }
 
@@ -116,11 +132,11 @@ async function updateSheetFromCSV(csvData, urlDate) {
     }
   }
 
-  // Set the new date in Q2
-  q2Cell.value = urlDate;
+  // Set the new date in Q2 (as Date object)
+  q2Cell.value = urlDateObj;
 
   await sheet.saveUpdatedCells();
-  console.log(`✅ Update complete. ${updatedCount} rows modified. Date recorded in Q2.`);
+  console.log(`✅ Update complete. ${updatedCount} rows modified. Date written to Q2.`);
 }
 
 async function main() {
@@ -129,7 +145,6 @@ async function main() {
     const dateStr = getTodayDateString();
     //const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dateStr}.csv`;
     const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_07072025.csv";
-
 
     console.log("📥 Downloading CSV:", url);
     const csvData = await downloadCSV(url);
