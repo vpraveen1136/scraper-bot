@@ -1,9 +1,8 @@
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const csv = require("csv-parser");
-const axios = require("axios");
-
 const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 const SHEET_ID = "1EVY2xoDUVJ5BtTiStQKGqWURCD5AH4sSZcw5uHaYrUI";
+const axios = require("axios");
 
 function getTodayDateString() {
   const now = new Date();
@@ -11,13 +10,6 @@ function getTodayDateString() {
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const yyyy = now.getFullYear();
   return `${dd}${mm}${yyyy}`;
-}
-
-function parseDDMMYYYYtoDate(ddmmyyyy) {
-  const dd = parseInt(ddmmyyyy.slice(0, 2));
-  const mm = parseInt(ddmmyyyy.slice(2, 4)) - 1; // 0-based months
-  const yyyy = parseInt(ddmmyyyy.slice(4, 8));
-  return new Date(yyyy, mm, dd);
 }
 
 function downloadCSV(url) {
@@ -54,7 +46,7 @@ function downloadCSV(url) {
   });
 }
 
-async function updateSheetFromCSV(csvData, urlDate) {
+async function updateSheetFromCSV(csvData, urlDateStr) {
   const doc = new GoogleSpreadsheet(SHEET_ID);
   console.log("🟡 Authenticating Google Sheets...");
   await doc.useServiceAccountAuth(creds);
@@ -79,26 +71,36 @@ async function updateSheetFromCSV(csvData, urlDate) {
   console.log(`📄 Loading cells A1:Q${rowCount}...`);
   await sheet.loadCells(`A1:Q${rowCount}`);
 
+  // 🔎 Read Q2 and compare dates
   const q2Cell = sheet.getCell(1, 16); // Q2
-  const existingDate = q2Cell.value instanceof Date
-    ? q2Cell.value
-    : new Date(String(q2Cell.value));
+  const existingDateStr = q2Cell.value ? String(q2Cell.value).trim() : "";
+  const [exDay, exMonth, exYear] = existingDateStr.split("/").map(Number);
+  const existingDate = new Date(exYear, exMonth - 1, exDay);
 
-  const urlDateObj = new Date(
-    `${urlDate.slice(4)}-${urlDate.slice(2, 4)}-${urlDate.slice(0, 2)}`
-  );
+  const urlDay = parseInt(urlDateStr.slice(0, 2));
+  const urlMonth = parseInt(urlDateStr.slice(2, 4));
+  const urlYear = parseInt(urlDateStr.slice(4));
+  const urlDateObj = new Date(urlYear, urlMonth - 1, urlDay);
 
-  if (existingDate && urlDateObj <= existingDate) {
-    console.log("⚠️ Sheet already contains newer or same date:", existingDate);
+  if (!isNaN(existingDate.getTime()) && urlDateObj <= existingDate) {
+    console.log("⚠️ Sheet already contains newer or same date:", existingDateStr);
     return;
   }
 
-  let updatedCount = 0;
-
+  // ⏩ Copy columns C to P → B to O
   for (let r = 1; r < rowCount; r++) {
-    const symbolCell = sheet.getCell(r, 0);  // Column A (symbol)
-    const deliveryCell = sheet.getCell(r, 15); // Column P (delivery %)
+    for (let c = 2; c <= 15; c++) {
+      const sourceCell = sheet.getCell(r, c);
+      const targetCell = sheet.getCell(r, c - 1);
+      targetCell.value = sourceCell.value;
+    }
+  }
 
+  // ✅ Update column P with new delivery data
+  let updatedCount = 0;
+  for (let r = 1; r < rowCount; r++) {
+    const symbolCell = sheet.getCell(r, 0); // Column A
+    const deliveryCell = sheet.getCell(r, 15); // Column P
     const symbol = symbolCell.value?.toString().trim().toUpperCase();
     const delivery = deliveryMap[symbol];
 
@@ -109,40 +111,28 @@ async function updateSheetFromCSV(csvData, urlDate) {
     }
   }
 
-  // Copy values C to P into B to O if date is newer
-  for (let r = 1; r < rowCount; r++) {
-    for (let c = 2; c <= 15; c++) {
-      const fromCell = sheet.getCell(r, c);
-      const toCell = sheet.getCell(r, c - 1);
-      toCell.value = fromCell.value;
-    }
-  }
+  // 📝 Write new date to Q2
+  const formattedDate = `${urlDay.toString().padStart(2, "0")}/${urlMonth
+    .toString()
+    .padStart(2, "0")}/${urlYear}`;
+  q2Cell.value = formattedDate;
 
-  // Set date in Q2
-  q2Cell.value = urlDateObj;
-
-  try {
-    console.log("💾 Saving updated cells to Google Sheet...");
-    await sheet.saveUpdatedCells();
-    console.log(`✅ Update complete. ${updatedCount} rows modified. Date written to Q2.`);
-  } catch (err) {
-    console.error("❌ Failed to save updates to sheet:", err.message);
-  }
+  await sheet.saveUpdatedCells();
+  console.log(`✅ Batch update complete. ${updatedCount} rows updated.`);
 }
-
 
 async function main() {
   try {
     console.log("🟡 Starting script...");
-    const dateStr = getTodayDateString();
-    //const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dateStr}.csv`;
+    const urlDateStr = getTodayDateString();
+    //const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${urlDateStr}.csv`;
     const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_07072025.csv";
 
     console.log("📥 Downloading CSV:", url);
     const csvData = await downloadCSV(url);
     console.log("📊 Records downloaded:", csvData.length);
 
-    await updateSheetFromCSV(csvData, dateStr);
+    await updateSheetFromCSV(csvData, urlDateStr);
     console.log("✅ Sheet updated successfully.");
   } catch (error) {
     console.error("❌ Error:", error.message);
