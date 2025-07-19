@@ -52,7 +52,7 @@ async function updateSheetFromCSV(csvData) {
   await doc.useServiceAccountAuth(creds);
   await doc.loadInfo();
 
-  const sheet = doc.sheetsByTitle["Sheet1"];
+  const sheet = doc.sheetsByTitle["DELprc"];
   if (!sheet) {
     console.error("❌ Sheet 'Sheet1' not found");
     return;
@@ -75,7 +75,7 @@ async function updateSheetFromCSV(csvData) {
 
   for (let r = 1; r < rowCount; r++) {
     const symbolCell = sheet.getCell(r, 0); // Column A (symbol)
-    const deliveryCell = sheet.getCell(r, 18); // Column S (delivery %)
+    const deliveryCell = sheet.getCell(r, 15); // Column P (delivery %)
 
     const symbol = symbolCell.value?.toString().trim().toUpperCase();
     const delivery = deliveryMap[symbol];
