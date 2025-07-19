@@ -59,22 +59,30 @@ async function updateSheetFromCSV(csvData, urlDate) {
     return;
   }
 
-  const rowCount = sheet.rowCount;
-  console.log(`📄 Loading cells A1:Q${rowCount}...`);
-  await sheet.loadCells(`A1:Q${rowCount}`);
+  // Load Column A to find how many rows are filled
+  await sheet.loadCells("A1:A10000"); // Load up to 10,000 rows from Column A
+  let lastRow = 1;
+  for (let r = 1; r < 10000; r++) {
+    const cell = sheet.getCell(r, 0);
+    if (!cell.value) break;
+    lastRow = r;
+  }
+
+  const usedRowCount = lastRow + 1;
+  console.log(`📄 Loading full row range A1:Q${usedRowCount}...`);
+  await sheet.loadCells(`A1:Q${usedRowCount}`);
 
   const q2Cell = sheet.getCell(1, 16); // Q2
-  const existingDate = q2Cell.value?.trim();
+  const existingDate = q2Cell.value ? String(q2Cell.value).trim() : "";
 
-  // Compare dates
   if (existingDate && urlDate <= existingDate) {
     console.log("⚠️ Sheet already contains newer or same date:", existingDate);
     return;
   }
 
-  // Backup: Copy C:P to B:O
-  console.log("📋 Backing up C:P → B:O...");
-  for (let r = 1; r < rowCount; r++) {
+  // Backup C:P → to B:O
+  console.log("📋 Backing up columns C:P → B:O...");
+  for (let r = 1; r <= lastRow; r++) {
     for (let c = 2; c <= 15; c++) {
       const fromCell = sheet.getCell(r, c);
       const toCell = sheet.getCell(r, c - 1);
@@ -82,7 +90,7 @@ async function updateSheetFromCSV(csvData, urlDate) {
     }
   }
 
-  // Prepare delivery % update map
+  // Prepare delivery % map
   const deliveryMap = {};
   for (const row of csvData) {
     const symbol = row["SYMBOL"]?.trim().toUpperCase();
@@ -92,11 +100,11 @@ async function updateSheetFromCSV(csvData, urlDate) {
     }
   }
 
-  // Update delivery % in column P (15)
+  // Update delivery % (column P)
   let updatedCount = 0;
-  for (let r = 1; r < rowCount; r++) {
-    const symbolCell = sheet.getCell(r, 0); // Column A
-    const deliveryCell = sheet.getCell(r, 15); // Column P
+  for (let r = 1; r <= lastRow; r++) {
+    const symbolCell = sheet.getCell(r, 0); // A
+    const deliveryCell = sheet.getCell(r, 15); // P
 
     const symbol = symbolCell.value?.toString().trim().toUpperCase();
     const delivery = deliveryMap[symbol];
@@ -108,7 +116,7 @@ async function updateSheetFromCSV(csvData, urlDate) {
     }
   }
 
-  // Write URL date to Q2
+  // Set the new date in Q2
   q2Cell.value = urlDate;
 
   await sheet.saveUpdatedCells();
@@ -121,6 +129,7 @@ async function main() {
     const dateStr = getTodayDateString();
     //const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dateStr}.csv`;
     const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_07072025.csv";
+
 
     console.log("📥 Downloading CSV:", url);
     const csvData = await downloadCSV(url);
