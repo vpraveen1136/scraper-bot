@@ -4,15 +4,16 @@ const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 const SHEET_ID = "1EVY2xoDUVJ5BtTiStQKGqWURCD5AH4sSZcw5uHaYrUI";
 const axios = require("axios");
 
-function parseCSVDate(csvDateStr) {
-  const months = {
-    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
-  };
-  const [day, monthStr, year] = csvDateStr.split("-");
-  return new Date(parseInt(year), months[monthStr], parseInt(day));
+// 🔁 Format today's date as ddmmyyyy
+function getTodayDateString() {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = now.getFullYear();
+  return `${dd}${mm}${yyyy}`;
 }
 
+// 📥 Download CSV file
 function downloadCSV(url) {
   return new Promise(async (resolve, reject) => {
     const results = [];
@@ -29,16 +30,9 @@ function downloadCSV(url) {
         responseType: "stream",
       });
 
-      let isFirst = true;
-      let csvDate = "";
-
       response.data
         .pipe(csv())
         .on("data", (rawData) => {
-          if (isFirst) {
-            csvDate = rawData["DATE1"] || rawData["DATE"]; // fallback
-            isFirst = false;
-          }
           const cleanData = {};
           for (const key in rawData) {
             const cleanKey = key.replace(/\uFEFF/g, "").trim();
@@ -46,7 +40,7 @@ function downloadCSV(url) {
           }
           results.push(cleanData);
         })
-        .on("end", () => resolve({ data: results, date: csvDate }))
+        .on("end", () => resolve(results))
         .on("error", (err) => reject(err));
     } catch (err) {
       reject(err);
@@ -54,7 +48,8 @@ function downloadCSV(url) {
   });
 }
 
-async function updateSheet(csvData, csvDateStr) {
+// 📊 Update Google Sheet
+async function updateSheetFromCSV(csvData, csvDateStr) {
   const doc = new GoogleSpreadsheet(SHEET_ID);
   console.log("🟡 Authenticating Google Sheets...");
   await doc.useServiceAccountAuth(creds);
@@ -70,21 +65,35 @@ async function updateSheet(csvData, csvDateStr) {
   console.log(`📄 Loading cells A1:Q${rowCount}...`);
   await sheet.loadCells(`A1:Q${rowCount}`);
 
-  // 📆 Read Q2 date from sheet
+  // ⏱️ Get existing date in Q2 and parse both dates
   const q2Cell = sheet.getCell(1, 16); // Q2
-  const sheetDateStr = q2Cell.value ? String(q2Cell.value).trim() : "";
-  const [sd, sm, sy] = sheetDateStr.split("/").map(Number);
-  const sheetDate = new Date(sy, sm - 1, sd);
+  const existingDateStr = q2Cell.value ? String(q2Cell.value).trim() : "";
+  const [exDay, exMonth, exYear] = existingDateStr.split("/").map(Number);
+  const existingDate = new Date(exYear, exMonth - 1, exDay);
 
-  // 📆 Parse date from CSV C2
-  const csvDate = parseCSVDate(csvDateStr);
+  // 🆕 Parse new CSV date (in format dd-MMM-yyyy)
+  const [newDay, newMonStr, newYear] = csvDateStr.split("-");
+  const monthMap = {
+    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+  };
+  const newDate = new Date(parseInt(newYear), monthMap[newMonStr], parseInt(newDay));
 
-  if (!isNaN(sheetDate.getTime()) && csvDate <= sheetDate) {
-    console.log("⚠️ Sheet already contains newer or same date:", sheetDateStr);
+  if (!isNaN(existingDate) && newDate <= existingDate) {
+    console.log("⚠️ Sheet already contains newer or same date:", existingDateStr);
     return;
   }
 
-  // 🗂️ Create delivery map from SYMBOL → DELIV_PER
+  // ⏩ Shift columns C–P → B–O
+  for (let r = 1; r < rowCount; r++) {
+    for (let c = 2; c <= 15; c++) {
+      const fromCell = sheet.getCell(r, c);
+      const toCell = sheet.getCell(r, c - 1);
+      toCell.value = fromCell.value;
+    }
+  }
+
+  // 🧮 Prepare delivery % updates
   const deliveryMap = {};
   for (const row of csvData) {
     const symbol = row["SYMBOL"]?.trim().toUpperCase();
@@ -94,24 +103,13 @@ async function updateSheet(csvData, csvDateStr) {
     }
   }
 
-  // 🔁 Shift columns C→P → B→O
-  for (let r = 1; r < rowCount; r++) {
-    for (let c = 2; c <= 15; c++) {
-      const sourceCell = sheet.getCell(r, c);
-      const targetCell = sheet.getCell(r, c - 1);
-      targetCell.value = sourceCell.value;
-    }
-  }
-
-  // 🔄 Update column P
+  // 📝 Update column P with new delivery data
   let updatedCount = 0;
   for (let r = 1; r < rowCount; r++) {
-    const symbolCell = sheet.getCell(r, 0);
+    const symbolCell = sheet.getCell(r, 0); // A
     const deliveryCell = sheet.getCell(r, 15); // P
-
     const symbol = symbolCell.value?.toString().trim().toUpperCase();
     const delivery = deliveryMap[symbol];
-
     if (symbol && delivery && deliveryCell.value !== delivery) {
       deliveryCell.value = delivery;
       updatedCount++;
@@ -119,30 +117,32 @@ async function updateSheet(csvData, csvDateStr) {
     }
   }
 
-  // 📝 Write CSV C2 date to Q2
-  const dd = csvDate.getDate().toString().padStart(2, "0");
-  const mm = (csvDate.getMonth() + 1).toString().padStart(2, "0");
-  const yyyy = csvDate.getFullYear();
-  q2Cell.value = `${dd}/${mm}/${yyyy}`;
+  // ✅ Update Q2 with new date
+  q2Cell.value = `${newDay.padStart(2, "0")}/${(monthMap[newMonStr] + 1)
+    .toString()
+    .padStart(2, "0")}/${newYear}`;
 
   await sheet.saveUpdatedCells();
-  console.log(`✅ Sheet updated. ${updatedCount} rows changed. Date: ${q2Cell.value}`);
+  console.log(`✅ Sheet updated. ${updatedCount} rows modified.`);
 }
 
+// 🚀 Main Function
 async function main() {
   try {
     console.log("🟡 Starting script...");
     const urlDateStr = getTodayDateString();
     //const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${urlDateStr}.csv`;
     const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_12072025.csv";
-
     console.log("📥 Downloading CSV:", url);
-    const { data, date } = await downloadCSV(url);
 
-    console.log("📊 Records downloaded:", data.length);
-    console.log("📅 CSV C2 date:", date);
+    const csvData = await downloadCSV(url);
+    console.log("📊 Records downloaded:", csvData.length);
 
-    await updateSheet(data, date);
+    const firstRow = csvData[0];
+    const csvDateStr = firstRow && firstRow["DATE1"];
+    if (!csvDateStr) throw new Error("DATE1 field (CSV C2) not found");
+
+    await updateSheetFromCSV(csvData, csvDateStr);
   } catch (error) {
     console.error("❌ Error:", error.message);
   }
