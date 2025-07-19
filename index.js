@@ -62,13 +62,13 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
   console.log(`📄 Loading cells A1:AF${rowCount}...`);
   await sheet.loadCells(`A1:AF${rowCount}`);
 
-  // Parse date from Q2
+  // Parse Q2 date
   const q2Cell = sheet.getCell(1, 16); // Q2
   const existingDateStr = q2Cell.value ? String(q2Cell.value).trim() : "";
   const [exDay, exMonth, exYear] = existingDateStr.split("/").map(Number);
   const existingDate = new Date(exYear, exMonth - 1, exDay);
 
-  // Parse date from CSV C2 (DATE1 field)
+  // Parse new CSV date (dd-MMM-yyyy)
   const [newDay, newMonStr, newYear] = csvDateStr.split("-");
   const monthMap = {
     Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
@@ -76,7 +76,6 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
   };
   const newDate = new Date(parseInt(newYear), monthMap[newMonStr], parseInt(newDay));
 
-  // Log both dates
   console.log("📅 Existing Q2 Date:", existingDateStr, "→", existingDate.toDateString());
   console.log("📅 New CSV Date:", csvDateStr, "→", newDate.toDateString());
 
@@ -85,82 +84,74 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
     return;
   }
 
-  // Shift columns C–P → B–O
+  // Shift C–P → B–O and S–AE → R–AD
   for (let r = 1; r < rowCount; r++) {
     for (let c = 2; c <= 15; c++) {
-      const fromCell = sheet.getCell(r, c);
-      const toCell = sheet.getCell(r, c - 1);
-      toCell.value = fromCell.value;
+      const from = sheet.getCell(r, c);
+      const to = sheet.getCell(r, c - 1);
+      to.value = from.value;
     }
-  }
-
-  // Shift columns S–AE → R–AD
-  for (let r = 1; r < rowCount; r++) {
     for (let c = 18; c <= 31; c++) {
-      const fromCell = sheet.getCell(r, c);
-      const toCell = sheet.getCell(r, c - 1);
-      toCell.value = fromCell.value;
+      const from = sheet.getCell(r, c);
+      const to = sheet.getCell(r, c - 1);
+      to.value = from.value;
     }
   }
 
-  // Prepare delivery % map
+  // Prepare maps
   const deliveryMap = {};
-  for (const row of csvData) {
-    const symbol = row["SYMBOL"]?.trim().toUpperCase();
-    const delivery = row["DELIV_PER"]?.trim();
-    if (symbol && delivery) {
-      deliveryMap[symbol] = delivery;
-    }
-  }
-
-  // Prepare Price Change % map
   const priceChgMap = {};
   for (const row of csvData) {
     const symbol = row["SYMBOL"]?.trim().toUpperCase();
+    const delivery = row["DELIV_PER"]?.trim();
     const today = parseFloat(row["CLOSE_PRICE"]);
     const prev = parseFloat(row["PREV_CLOSE"]);
+
+    if (symbol && delivery) {
+      deliveryMap[symbol] = delivery;
+    }
+
     if (symbol && !isNaN(today) && !isNaN(prev) && prev !== 0) {
-      const change = ((today - prev) / prev) * 100;
-      priceChgMap[symbol] = change;
+      priceChgMap[symbol] = ((today - prev) / prev) * 100;
     }
   }
 
-  // Update column P with delivery %
-  let updatedDeliveryCount = 0;
+  // Update column P (15) - Delivery %
+  let deliveryCount = 0;
   for (let r = 1; r < rowCount; r++) {
-    const symbolCell = sheet.getCell(r, 0);
-    const deliveryCell = sheet.getCell(r, 15);
-    const symbol = symbolCell.value?.toString().trim().toUpperCase();
-    const delivery = deliveryMap[symbol];
-    if (symbol && delivery && deliveryCell.value !== delivery) {
-      deliveryCell.value = delivery;
-      updatedDeliveryCount++;
-      console.log(`✅ Delivery % updated: ${symbol} → ${delivery}`);
+    const symbol = sheet.getCell(r, 0)?.value?.toString().trim().toUpperCase();
+    const cell = sheet.getCell(r, 15);
+    const newVal = deliveryMap[symbol];
+    if (symbol && newVal && cell.value !== newVal) {
+      cell.value = newVal;
+      deliveryCount++;
     }
   }
 
-  // Update column AE (31) with price change %
-  let updatedPriceCount = 0;
-  for (let r = 1; r < rowCount; r++) {
-    const symbolCell = sheet.getCell(r, 0);
-    const priceCell = sheet.getCell(r, 31); // AE
-    const symbol = symbolCell.value?.toString().trim().toUpperCase();
-    const priceChange = priceChgMap[symbol];
-    if (symbol && priceChange != null && priceCell.value !== priceChange) {
-      priceCell.value = parseFloat(priceChange.toFixed(2));
-      updatedPriceCount++;
-      console.log(`📈 Price % updated: ${symbol} → ${priceChange.toFixed(2)}%`);
-    }
-  }
+  // Write Q2 new date
+  q2Cell.value = `${newDay.padStart(2, "0")}/${(monthMap[newMonStr] + 1).toString().padStart(2, "0")}/${newYear}`;
 
-  // Update Q2 with new date
-  q2Cell.value = `${newDay.padStart(2, "0")}/${(monthMap[newMonStr] + 1)
-    .toString()
-    .padStart(2, "0")}/${newYear}`;
-
+  console.log("💾 Saving delivery % and column shifts...");
   await sheet.saveUpdatedCells();
-  console.log(`✅ Sheet updated: ${updatedDeliveryCount} delivery and ${updatedPriceCount} price rows.`);
+  console.log(`✅ Saved ${deliveryCount} delivery updates and date to Q2.`);
+
+  // Now update column AE (31) - Price %
+  let priceCount = 0;
+  for (let r = 1; r < rowCount; r++) {
+    const symbol = sheet.getCell(r, 0)?.value?.toString().trim().toUpperCase();
+    const cell = sheet.getCell(r, 31);
+    const priceChange = priceChgMap[symbol];
+    if (symbol && priceChange != null && cell.value !== priceChange) {
+      cell.value = parseFloat(priceChange.toFixed(2));
+      priceCount++;
+    }
+  }
+
+  console.log("💾 Saving price % updates...");
+  await sheet.saveUpdatedCells();
+  console.log(`✅ Sheet updated: ${deliveryCount} delivery rows, ${priceCount} price rows.`);
 }
+
 
 async function main() {
   try {
