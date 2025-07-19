@@ -79,6 +79,10 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
   };
   const newDate = new Date(parseInt(newYear), monthMap[newMonStr], parseInt(newDay));
 
+  // 🖨️ Print both dates for debug
+  console.log("📅 Existing Q2 Date:", existingDateStr, "→", existingDate.toDateString());
+  console.log("📅 New CSV Date:", csvDateStr, "→", newDate.toDateString());
+
   if (!isNaN(existingDate) && newDate <= existingDate) {
     console.log("⚠️ Sheet already contains newer or same date:", existingDateStr);
     return;
