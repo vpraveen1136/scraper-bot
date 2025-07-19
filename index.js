@@ -54,7 +54,7 @@ function downloadCSV(url) {
   });
 }
 
-async function updateSheetFromCSV(csvData, urlDateStr) {
+async function updateSheetFromCSV(csvData, urlDate) {
   const doc = new GoogleSpreadsheet(SHEET_ID);
   console.log("🟡 Authenticating Google Sheets...");
   await doc.useServiceAccountAuth(creds);
@@ -66,47 +66,6 @@ async function updateSheetFromCSV(csvData, urlDateStr) {
     return;
   }
 
-  // Load Column A to detect how many rows are filled
-  await sheet.loadCells("A1:A10000");
-  let lastRow = 1;
-  for (let r = 1; r < 10000; r++) {
-    const cell = sheet.getCell(r, 0);
-    if (!cell.value) break;
-    lastRow = r;
-  }
-
-  const usedRowCount = lastRow + 1;
-  console.log(`📄 Loading full row range A1:Q${usedRowCount}...`);
-  await sheet.loadCells(`A1:Q${usedRowCount}`);
-
-  const q2Cell = sheet.getCell(1, 16); // Q2
-  const urlDateObj = parseDDMMYYYYtoDate(urlDateStr);
-
-  let existingDateObj = null;
-  if (q2Cell.value instanceof Date) {
-    existingDateObj = q2Cell.value;
-  }
-
-  // Compare dates
-  if (existingDateObj && urlDateObj <= existingDateObj) {
-    console.log(
-      "⚠️ Sheet already contains newer or same date:",
-      existingDateObj.toLocaleDateString("en-GB")
-    );
-    return;
-  }
-
-  // Backup C:P → to B:O
-  console.log("📋 Backing up columns C:P → B:O...");
-  for (let r = 1; r <= lastRow; r++) {
-    for (let c = 2; c <= 15; c++) {
-      const fromCell = sheet.getCell(r, c);
-      const toCell = sheet.getCell(r, c - 1);
-      toCell.value = fromCell.value;
-    }
-  }
-
-  // Prepare delivery % map
   const deliveryMap = {};
   for (const row of csvData) {
     const symbol = row["SYMBOL"]?.trim().toUpperCase();
@@ -116,11 +75,29 @@ async function updateSheetFromCSV(csvData, urlDateStr) {
     }
   }
 
-  // Update delivery % (column P)
+  const rowCount = sheet.rowCount;
+  console.log(`📄 Loading cells A1:Q${rowCount}...`);
+  await sheet.loadCells(`A1:Q${rowCount}`);
+
+  const q2Cell = sheet.getCell(1, 16); // Q2
+  const existingDate = q2Cell.value instanceof Date
+    ? q2Cell.value
+    : new Date(String(q2Cell.value));
+
+  const urlDateObj = new Date(
+    `${urlDate.slice(4)}-${urlDate.slice(2, 4)}-${urlDate.slice(0, 2)}`
+  );
+
+  if (existingDate && urlDateObj <= existingDate) {
+    console.log("⚠️ Sheet already contains newer or same date:", existingDate);
+    return;
+  }
+
   let updatedCount = 0;
-  for (let r = 1; r <= lastRow; r++) {
-    const symbolCell = sheet.getCell(r, 0); // A
-    const deliveryCell = sheet.getCell(r, 15); // P
+
+  for (let r = 1; r < rowCount; r++) {
+    const symbolCell = sheet.getCell(r, 0);  // Column A (symbol)
+    const deliveryCell = sheet.getCell(r, 15); // Column P (delivery %)
 
     const symbol = symbolCell.value?.toString().trim().toUpperCase();
     const delivery = deliveryMap[symbol];
@@ -132,12 +109,27 @@ async function updateSheetFromCSV(csvData, urlDateStr) {
     }
   }
 
-  // Set the new date in Q2 (as Date object)
+  // Copy values C to P into B to O if date is newer
+  for (let r = 1; r < rowCount; r++) {
+    for (let c = 2; c <= 15; c++) {
+      const fromCell = sheet.getCell(r, c);
+      const toCell = sheet.getCell(r, c - 1);
+      toCell.value = fromCell.value;
+    }
+  }
+
+  // Set date in Q2
   q2Cell.value = urlDateObj;
 
-  await sheet.saveUpdatedCells();
-  console.log(`✅ Update complete. ${updatedCount} rows modified. Date written to Q2.`);
+  try {
+    console.log("💾 Saving updated cells to Google Sheet...");
+    await sheet.saveUpdatedCells();
+    console.log(`✅ Update complete. ${updatedCount} rows modified. Date written to Q2.`);
+  } catch (err) {
+    console.error("❌ Failed to save updates to sheet:", err.message);
+  }
 }
+
 
 async function main() {
   try {
