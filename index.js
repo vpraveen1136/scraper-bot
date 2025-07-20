@@ -123,7 +123,7 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
     const prev = parseFloat(row["PREV_CLOSE"]);
     if (symbol && delivery) deliveryMap[symbol] = delivery;
     if (symbol && !isNaN(today) && !isNaN(prev) && prev !== 0) {
-      priceMap[symbol] = ((today - prev) / prev) * 100;
+      priceMap[symbol] = ((today - prev) / prev) * 10;
     }
   }
 
