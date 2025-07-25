@@ -2,7 +2,7 @@ name: Update Delivery % from NSE Bhavcopy
 
 on:
   schedule:
-    - cron: '30 5 * * 1-5' # Runs at 11:00 AM IST (Mon–Fri)
+    - cron: '30 12 * * 1-5' # Runs at 06:00 pm IST (Mon–Fri)
   workflow_dispatch:       # Allows manual run from GitHub UI
 
 jobs:
