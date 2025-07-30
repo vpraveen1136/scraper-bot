@@ -134,11 +134,21 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
     if (!symbol) continue;
     const newDeliv = deliveryMap[symbol];
     const cell = sheet.getCell(r, 15);
-    if (newDeliv && cell.value !== newDeliv) {
-      cell.value = newDeliv;
-      deliveryCount++;
+    if (newDeliv) {
+     const parsedDeliv = parseFloat(newDeliv);
+     if (!isNaN(parsedDeliv)) {
+       const roundedDeliv = Math.round(parsedDeliv);  // 👈 convert to whole number
+       if (cell.value !== roundedDeliv) {
+        cell.value = roundedDeliv;
+        deliveryCount++;
+      }
     }
+   }
+
   }
+}
+
+  
 
   // Save delivery updates
   await sheet.saveUpdatedCells();
