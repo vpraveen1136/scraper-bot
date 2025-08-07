@@ -135,22 +135,17 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
     const newDeliv = deliveryMap[symbol];
     const cell = sheet.getCell(r, 15);
     if (newDeliv) {
-     const parsedDeliv = parseFloat(newDeliv);
-     if (!isNaN(parsedDeliv)) {
-       const roundedDeliv = Math.round(parsedDeliv);  // 👈 convert to whole number
-       if (cell.value !== roundedDeliv) {
-        cell.value = roundedDeliv;
-        deliveryCount++;
+      const parsedDeliv = parseFloat(newDeliv);
+      if (!isNaN(parsedDeliv)) {
+        const roundedDeliv = Math.round(parsedDeliv);  // 👈 convert to whole number
+        if (cell.value !== roundedDeliv) {
+          cell.value = roundedDeliv;
+          deliveryCount++;
+        }
       }
     }
-   }
-
   }
-}
 
-  
-
-  // Save delivery updates
   await sheet.saveUpdatedCells();
   console.log(`✅ Updated ${deliveryCount} delivery rows.`);
 
@@ -166,15 +161,18 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
     }
   }
 
-  // Save price updates
   await sheet.saveUpdatedCells();
   console.log(`✅ Updated ${priceCount} price change rows.`);
 
-  // Update Q2
+  // Update Q2 date
   q2Cell.value = `${newDay.padStart(2, "0")}/${(monthMap[newMonStr] + 1).toString().padStart(2, "0")}/${newYear}`;
   await sheet.saveUpdatedCells();
   console.log(`📅 Q2 updated to new date: ${q2Cell.value}`);
 }
+
+
+
+
 
 async function main() {
   try {
