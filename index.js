@@ -178,8 +178,8 @@ async function main() {
   try {
     console.log("🟡 Starting script...");
     const urlDateStr = getTodayDateString();
-    //const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${urlDateStr}.csv`;
-    const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_06082025.csv";
+    const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${urlDateStr}.csv`;
+    //const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_06082025.csv";
     console.log("📥 Downloading CSV:", url);
 
     const csvData = await downloadCSV(url);
