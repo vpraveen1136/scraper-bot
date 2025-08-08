@@ -125,7 +125,7 @@ for (const row of csvData) {
   const prev = parseFloat(row["PREV_CLOSE"]);
 
   if (symbol && !isNaN(delivQty) && !isNaN(avgPrice)) {
-    deliveryValueMap[symbol] = delivQty * avgPrice/100;
+    deliveryValueMap[symbol] = delivQty * avgPrice/10000000;
   }
 
   if (symbol && !isNaN(today) && !isNaN(prev) && prev !== 0) {
