@@ -113,27 +113,34 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
   await shiftColumnsWithDelay(sheet, 1, rowCount - 1, 2, 15, -1);  // C:P → B:O
   await shiftColumnsWithDelay(sheet, 1, rowCount - 1, 18, 31, -1); // S:AE → R:AD
 
-  // Prepare data maps
-  const deliveryMap = {};
-  const priceMap = {};
-  for (const row of csvData) {
-    const symbol = row["SYMBOL"]?.trim().toUpperCase();
-    const delivery = row["DELIV_PER"];
-    const today = parseFloat(row["CLOSE_PRICE"]);
-    const prev = parseFloat(row["PREV_CLOSE"]);
-    if (symbol && delivery) deliveryMap[symbol] = delivery;
-    if (symbol && !isNaN(today) && !isNaN(prev) && prev !== 0) {
-      priceMap[symbol] = ((today - prev) / prev) * 10;
-    }
+// Prepare data maps
+const deliveryValueMap = {};
+const priceMap = {};
+
+for (const row of csvData) {
+  const symbol = row["SYMBOL"]?.trim().toUpperCase();
+  const delivQty = parseFloat(row["DELIV_QTY"]);
+  const avgPrice = parseFloat(row["AVG_PRICE"]);
+  const today = parseFloat(row["CLOSE_PRICE"]);
+  const prev = parseFloat(row["PREV_CLOSE"]);
+
+  if (symbol && !isNaN(delivQty) && !isNaN(avgPrice)) {
+    deliveryValueMap[symbol] = delivQty * avgPrice/100;
   }
 
-  // Update delivery % (P column)
+  if (symbol && !isNaN(today) && !isNaN(prev) && prev !== 0) {
+    priceMap[symbol] = ((today - prev) / prev) * 100; // % change
+  }
+}
+
+
+  // Update delivery value (P column)
   let deliveryCount = 0;
   for (let r = 1; r < rowCount; r++) {
     const symbol = sheet.getCell(r, 0).value?.toString().trim().toUpperCase();
     if (!symbol) continue;
-    const newDeliv = deliveryMap[symbol];
-    const cell = sheet.getCell(r, 14);
+    const newDeliv = deliveryValueMap[symbol];
+    const cell = sheet.getCell(r, 15);
     if (newDeliv) {
       const parsedDeliv = parseFloat(newDeliv);
       if (!isNaN(parsedDeliv)) {
