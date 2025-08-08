@@ -133,7 +133,7 @@ async function updateSheetFromCSV(csvData, csvDateStr) {
     const symbol = sheet.getCell(r, 0).value?.toString().trim().toUpperCase();
     if (!symbol) continue;
     const newDeliv = deliveryMap[symbol];
-    const cell = sheet.getCell(r, 15);
+    const cell = sheet.getCell(r, 14);
     if (newDeliv) {
       const parsedDeliv = parseFloat(newDeliv);
       if (!isNaN(parsedDeliv)) {
@@ -178,8 +178,8 @@ async function main() {
   try {
     console.log("🟡 Starting script...");
     const urlDateStr = getTodayDateString();
-    const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${urlDateStr}.csv`;
-    //const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_06082025.csv";
+    //const url = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${urlDateStr}.csv`;
+    const url = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_21072025.csv";
     console.log("📥 Downloading CSV:", url);
 
     const csvData = await downloadCSV(url);
